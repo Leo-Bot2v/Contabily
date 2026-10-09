@@ -1,6 +1,8 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { apiReference } from '@scalar/nestjs-api-reference';
 import { AppModule } from './app.module.js';
 
 async function bootstrap() {
@@ -44,6 +46,19 @@ async function bootstrap() {
       disableErrorMessages: nodeEnv === 'production',
     }),
   );
+
+  // Documentación de la API
+  const docConfig = new DocumentBuilder()
+    .setTitle('Contabily API')
+    .setDescription('API de autenticación y contabilidad')
+    .setVersion('1.0')
+    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'access-token')
+    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'refresh-token')
+    .build();
+  const openApiDocument = SwaggerModule.createDocument(app, docConfig);
+
+  SwaggerModule.setup('api/docs', app, openApiDocument);
+  app.use('/api/reference', apiReference({ content: openApiDocument }));
 
   // Manejo de shutdown graceful
   const signals = ['SIGTERM', 'SIGINT'];

@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: contabily-postgres-test
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: contabily_test
+    ports:
+      - "5433:5432"  # Puerto 5433 en host -> 5432 en container
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+      - ./docker/init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d contabily_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - contabily-test-network
+
+  # Opcional: pgAdmin para gestión visual de la BD de testing
+  pgadmin-test:
+    image: dpage/pgadmin4:latest
+    container_name: contabily-pgadmin-test
+    environment:
+      PGADMIN_DEFAULT_EMAIL: test@contabily.local
+      PGADMIN_DEFAULT_PASSWORD: test1234
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5051:80"
+    depends_on:
+      - postgres-test
+    networks:
+      - contabily-test-network
+
+volumes:
+  postgres_test_data:
+
+networks:
+  contabily-test-network:
+    driver: bridge

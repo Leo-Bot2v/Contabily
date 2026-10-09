@@ -20,6 +20,15 @@ export interface NodoArbol {
   subCuentas: NodoArbol[];
 }
 
+const CLASES_BASE = [
+  { codigo: '1', nombre: 'Activo' },
+  { codigo: '2', nombre: 'Pasivo' },
+  { codigo: '3', nombre: 'Patrimonio' },
+  { codigo: '4', nombre: 'Ingresos' },
+  { codigo: '5', nombre: 'Gastos' },
+  { codigo: '6', nombre: 'Costos' },
+];
+
 @Injectable()
 export class PlanCuentasService {
   constructor(
@@ -33,6 +42,8 @@ export class PlanCuentasService {
     if (existente) {
       throw new ConflictException(`Ya existe una cuenta con el código "${dto.codigo}"`);
     }
+
+    await this.validarClaseRaiz(dto.codigo);
 
     if (dto.cuentaPadreId) {
       await this.validarCuentaPadre(dto.cuentaPadreId);
@@ -96,6 +107,7 @@ export class PlanCuentasService {
       if (duplicada) {
         throw new ConflictException(`Ya existe una cuenta con el código "${dto.codigo}"`);
       }
+      await this.validarClaseRaiz(dto.codigo);
     }
 
     if (dto.cuentaPadreId) {
@@ -103,6 +115,7 @@ export class PlanCuentasService {
         throw new BadRequestException('Una cuenta no puede ser padre de sí misma');
       }
       await this.validarCuentaPadre(dto.cuentaPadreId);
+      await this.validarSinCiclo(id, dto.cuentaPadreId);
     }
 
     Object.assign(cuenta, dto);
@@ -140,5 +153,54 @@ export class PlanCuentasService {
     if (!padre) {
       throw new BadRequestException(`La cuenta padre ${cuentaPadreId} no existe`);
     }
+  }
+
+  /**
+   * Impide ciclos: el candidato a padre no puede ser (ni tener entre sus
+   * ascendientes) a la cuenta que se está actualizando, o el árbol dejaría
+   * de mostrar ambas ramas.
+   */
+  private async validarSinCiclo(id: string, cuentaPadreId: string): Promise<void> {
+    let actual: string | null = cuentaPadreId;
+    let pasos = 0;
+    while (actual && pasos < 1000) {
+      if (actual === id) {
+        throw new BadRequestException(
+          'No se puede asignar: la cuenta padre es descendiente de esta cuenta (crearía un ciclo)',
+        );
+      }
+      const nodo: PlanDeCuenta | null = await this.planCuentasRepo.findOne({ where: { id: actual } });
+      actual = nodo?.cuentaPadreId ?? null;
+      pasos += 1;
+    }
+  }
+
+  private async validarClaseRaiz(codigo: string): Promise<void> {
+    if (!codigo.includes('.')) {
+      return;
+    }
+    const claseRaiz = codigo.split('.')[0];
+    const clase = await this.planCuentasRepo.findOne({ where: { codigo: claseRaiz } });
+    if (!clase) {
+      throw new BadRequestException(
+        `Primero debe existir la clase "${claseRaiz}" — crea una cuenta con código "${claseRaiz}" antes de crear "${codigo}"`,
+      );
+    }
+  }
+
+  async sembrarClasesSiVacio(): Promise<PlanDeCuenta[]> {
+    const total = await this.planCuentasRepo.count();
+    if (total > 0) {
+      return [];
+    }
+    const clases = CLASES_BASE.map((clase) =>
+      this.planCuentasRepo.create({
+        codigo: clase.codigo,
+        nombre: clase.nombre,
+        cuentaPadreId: null,
+        esTransaccional: false,
+      }),
+    );
+    return this.planCuentasRepo.save(clases);
   }
 }

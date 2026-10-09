@@ -41,7 +41,7 @@ export class CajasController {
   @Post('cuentas')
   @ApiOperation({ summary: 'Crear una caja o cuenta bancaria (vinculada al plan de cuentas)' })
   @ApiResponse({ status: 201, description: 'Cuenta financiera creada' })
-  @ApiResponse({ status: 400, description: 'La cuenta contable no existe o no es transaccional' })
+  @ApiResponse({ status: 400, description: 'La cuenta contable no existe, no es transaccional, o falta cuentaAperturaId con saldoInicial > 0' })
   crearCuenta(@Body() dto: CrearCuentaFinancieraDto) {
     return this.cuentasFinancierasService.crearCuentaFinanciera(dto);
   }
@@ -67,6 +67,7 @@ export class CajasController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Registrar un ingreso (suma saldo y genera asiento contable)' })
   @ApiResponse({ status: 200, description: 'Ingreso registrado con asiento equilibrado' })
+  @ApiResponse({ status: 400, description: 'Cuenta contable no transaccional o vinculada a una caja' })
   registrarIngreso(@Body() dto: RegistrarMovimientoDto) {
     return this.transaccionesService.registrarIngreso(dto);
   }
@@ -75,7 +76,7 @@ export class CajasController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Registrar un egreso (valida saldo suficiente y genera asiento)' })
   @ApiResponse({ status: 200, description: 'Egreso registrado con asiento equilibrado' })
-  @ApiResponse({ status: 400, description: 'Saldo insuficiente' })
+  @ApiResponse({ status: 400, description: 'Saldo insuficiente, o cuenta contra vinculada a una caja' })
   registrarEgreso(@Body() dto: RegistrarMovimientoDto) {
     return this.transaccionesService.registrarEgreso(dto);
   }

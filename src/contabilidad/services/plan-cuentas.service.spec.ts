@@ -21,7 +21,13 @@ describe('PlanCuentasService', () => {
       find: vi.fn(),
       count: vi.fn(),
       create: vi.fn((...args) => (args.length === 2 ? args[1] : args[0])),
-      save: vi.fn((entidad) => Promise.resolve({ id: 'uuid-nuevo', ...entidad })),
+      save: vi.fn((entidad) =>
+        Promise.resolve(
+          Array.isArray(entidad)
+            ? entidad.map((e, i) => ({ id: `uuid-${i}`, ...e }))
+            : { id: 'uuid-nuevo', ...entidad },
+        ),
+      ),
       remove: vi.fn(),
     };
     dataSource = {
@@ -41,7 +47,9 @@ describe('PlanCuentasService', () => {
     });
 
     it('crea una cuenta válida con valores por defecto', async () => {
-      repo.findOne.mockResolvedValue(null);
+      repo.findOne.mockImplementation((opciones) =>
+        Promise.resolve(opciones?.where?.codigo === '1' ? { id: 'clase-1', codigo: '1' } : null),
+      );
 
       const cuenta = await service.crearCuenta({ codigo: '1.1.1.01', nombre: 'Caja General' });
 
@@ -57,11 +65,34 @@ describe('PlanCuentasService', () => {
     it('valida que la cuenta padre exista', async () => {
       repo.findOne
         .mockResolvedValueOnce(null) // código libre
+        .mockResolvedValueOnce({ id: 'clase-1', codigo: '1' }) // clase raíz OK
         .mockResolvedValueOnce(null); // padre no existe
 
       await expect(
         service.crearCuenta({ codigo: '1.1.1.01', nombre: 'Hija', cuentaPadreId: 'no-existe' }),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rechaza un código con punto si la clase raíz no existe', async () => {
+      repo.findOne
+        .mockResolvedValueOnce(null) // código libre
+        .mockResolvedValueOnce(null); // clase raíz "9" no existe
+
+      await expect(
+        service.crearCuenta({ codigo: '9.1.01', nombre: 'Huérfana' }),
+      ).rejects.toThrow('Primero debe existir la clase "9"');
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it('crea un código con punto cuando la clase raíz existe', async () => {
+      repo.findOne
+        .mockResolvedValueOnce(null) // código libre
+        .mockResolvedValueOnce({ id: 'clase-4', codigo: '4', nombre: 'Ingresos' }); // clase raíz OK
+
+      const cuenta = await service.crearCuenta({ codigo: '4.1.01', nombre: 'Ventas' });
+
+      expect(cuenta).toMatchObject({ codigo: '4.1.01', nombre: 'Ventas' });
+      expect(repo.save).toHaveBeenCalled();
     });
   });
 
@@ -120,6 +151,64 @@ describe('PlanCuentasService', () => {
     it('lanza NotFound si la cuenta no existe', async () => {
       repo.findOne.mockResolvedValue(null);
       await expect(service.obtenerCuentaPorId('no-existe')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('actualizarCuenta', () => {
+    it('rechaza asignar como padre a un descendiente (ciclo)', async () => {
+      // 'a' es la raíz y 'b' es su hijo: poner 'a' bajo 'b' crearía un ciclo
+      repo.findOne.mockImplementation((opciones) => {
+        const id = opciones?.where?.id;
+        if (id === 'a') return Promise.resolve({ id: 'a', codigo: '1.1', cuentaPadreId: null });
+        if (id === 'b') return Promise.resolve({ id: 'b', codigo: '1.1.01', cuentaPadreId: 'a' });
+        return Promise.resolve(null);
+      });
+
+      await expect(
+        service.actualizarCuenta('a', { cuentaPadreId: 'b' }),
+      ).rejects.toThrow('ciclo');
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+    it('rechaza cambiar el código a otro huérfano', async () => {
+      repo.findOne
+        .mockResolvedValueOnce({ id: 'a', codigo: '5.1.01', nombre: 'Gastos' }) // obtenerCuentaPorId
+        .mockResolvedValueOnce(null) // código nuevo sin duplicar
+        .mockResolvedValueOnce(null); // clase raíz "9" no existe
+
+      await expect(service.actualizarCuenta('a', { codigo: '9.2' })).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('sembrarClasesSiVacio', () => {
+    it('crea las 6 clases base si el plan está vacío', async () => {
+      repo.count.mockResolvedValue(0);
+
+      const clases = await service.sembrarClasesSiVacio();
+
+      expect(clases).toHaveLength(6);
+      expect(clases.map((c) => c.codigo)).toEqual(['1', '2', '3', '4', '5', '6']);
+      expect(clases.map((c) => c.nombre)).toEqual([
+        'Activo',
+        'Pasivo',
+        'Patrimonio',
+        'Ingresos',
+        'Gastos',
+        'Costos',
+      ]);
+      expect(clases.every((c) => c.esTransaccional === false)).toBe(true);
+      expect(repo.save).toHaveBeenCalled();
+    });
+
+    it('no toca nada si ya existen cuentas', async () => {
+      repo.count.mockResolvedValue(5);
+
+      const resultado = await service.sembrarClasesSiVacio();
+
+      expect(resultado).toEqual([]);
+      expect(repo.create).not.toHaveBeenCalled();
+      expect(repo.save).not.toHaveBeenCalled();
     });
   });
 });

@@ -13,6 +13,7 @@ import {
 import { CuentaFinanciera } from '../entities/cuenta-financiera.entity.js';
 import { AsientosService } from '../../contabilidad/services/asientos.service.js';
 import { PlanCuentasService } from '../../contabilidad/services/plan-cuentas.service.js';
+import { TipoCambioService } from '../../tipo-cambio/services/tipo-cambio.service.js';
 import {
   RegistrarMovimientoDto,
   TransferenciaDto,
@@ -26,6 +27,7 @@ export class TransaccionesService {
     private readonly dataSource: DataSource,
     private readonly asientosService: AsientosService,
     private readonly planCuentasService: PlanCuentasService,
+    private readonly tipoCambioService: TipoCambioService,
   ) {}
 
   async registrarIngreso(dto: RegistrarMovimientoDto): Promise<Transaccion> {
@@ -34,6 +36,7 @@ export class TransaccionesService {
     return this.dataSource.transaction(async (manager) => {
       const cuenta = await this.bloquearCuenta(manager, dto.cuentaFinancieraId);
       const monto = this.redondear(dto.monto);
+      const conversion = await this.calcularConversion(cuenta.moneda, monto);
 
       await this.actualizarSaldo(manager, cuenta, monto);
 
@@ -42,6 +45,9 @@ export class TransaccionesService {
           cuentaFinancieraId: cuenta.id,
           tipo: TipoTransaccion.INGRESO,
           monto: monto.toFixed(2),
+          montoEnMonedaBase: conversion.montoEnBase.toFixed(2),
+          tasaAplicada: conversion.tasaAplicada,
+          tipoCambioId: conversion.tipoCambioId,
           descripcion: dto.descripcion ?? null,
           referencia: dto.referencia ?? null,
           cuentaDestinoId: null,
@@ -52,10 +58,10 @@ export class TransaccionesService {
         glosa: dto.descripcion ?? `Ingreso en ${cuenta.nombre}`,
         referencia: dto.referencia,
         detalles: [
-          // Debe: la caja/banco (activo) aumenta
-          { cuentaId: cuenta.cuentaContableId, debe: monto, haber: 0 },
+          // Debe: la caja/banco (activo) aumenta — en moneda base (BOB)
+          { cuentaId: cuenta.cuentaContableId, debe: conversion.montoEnBase, haber: 0 },
           // Haber: cuenta de ingreso (cuenta contra)
-          { cuentaId: dto.cuentaContableId, debe: 0, haber: monto },
+          { cuentaId: dto.cuentaContableId, debe: 0, haber: conversion.montoEnBase },
         ],
       });
 
@@ -76,6 +82,8 @@ export class TransaccionesService {
         );
       }
 
+      const conversion = await this.calcularConversion(cuenta.moneda, monto);
+
       await this.actualizarSaldo(manager, cuenta, -monto);
 
       const transaccion = await manager.save(
@@ -83,6 +91,9 @@ export class TransaccionesService {
           cuentaFinancieraId: cuenta.id,
           tipo: TipoTransaccion.EGRESO,
           monto: monto.toFixed(2),
+          montoEnMonedaBase: conversion.montoEnBase.toFixed(2),
+          tasaAplicada: conversion.tasaAplicada,
+          tipoCambioId: conversion.tipoCambioId,
           descripcion: dto.descripcion ?? null,
           referencia: dto.referencia ?? null,
           cuentaDestinoId: null,
@@ -93,10 +104,10 @@ export class TransaccionesService {
         glosa: dto.descripcion ?? `Egreso en ${cuenta.nombre}`,
         referencia: dto.referencia,
         detalles: [
-          // Debe: cuenta de gasto (cuenta contra)
-          { cuentaId: dto.cuentaContableId, debe: monto, haber: 0 },
+          // Debe: cuenta de gasto (cuenta contra) — en moneda base (BOB)
+          { cuentaId: dto.cuentaContableId, debe: conversion.montoEnBase, haber: 0 },
           // Haber: la caja/banco (activo) disminuye
-          { cuentaId: cuenta.cuentaContableId, debe: 0, haber: monto },
+          { cuentaId: cuenta.cuentaContableId, debe: 0, haber: conversion.montoEnBase },
         ],
       });
 
@@ -119,11 +130,19 @@ export class TransaccionesService {
       const destino = primera.id === dto.cuentaDestinoId ? primera : segunda;
       const monto = this.redondear(dto.monto);
 
+      if ((origen.moneda ?? 'BOB') !== (destino.moneda ?? 'BOB')) {
+        throw new BadRequestException(
+          'Las transferencias solo permiten cuentas de la misma moneda',
+        );
+      }
+
       if (this.redondear(Number(origen.saldo)) < monto) {
         throw new BadRequestException(
           `Saldo insuficiente en "${origen.nombre}": disponible ${Number(origen.saldo).toFixed(2)}, requerido ${monto.toFixed(2)}`,
         );
       }
+
+      const conversion = await this.calcularConversion(origen.moneda, monto);
 
       await this.actualizarSaldo(manager, origen, -monto);
       await this.actualizarSaldo(manager, destino, monto);
@@ -133,6 +152,9 @@ export class TransaccionesService {
           cuentaFinancieraId: origen.id,
           tipo: TipoTransaccion.TRANSFERENCIA,
           monto: monto.toFixed(2),
+          montoEnMonedaBase: conversion.montoEnBase.toFixed(2),
+          tasaAplicada: conversion.tasaAplicada,
+          tipoCambioId: conversion.tipoCambioId,
           descripcion: dto.descripcion ?? null,
           referencia: dto.referencia ?? null,
           cuentaDestinoId: destino.id,
@@ -143,10 +165,10 @@ export class TransaccionesService {
         glosa: dto.descripcion ?? `Transferencia de ${origen.nombre} a ${destino.nombre}`,
         referencia: dto.referencia,
         detalles: [
-          // Debe: cuenta contable del destino
-          { cuentaId: destino.cuentaContableId, debe: monto, haber: 0 },
+          // Debe: cuenta contable del destino — en moneda base (BOB)
+          { cuentaId: destino.cuentaContableId, debe: conversion.montoEnBase, haber: 0 },
           // Haber: cuenta contable del origen
-          { cuentaId: origen.cuentaContableId, debe: 0, haber: monto },
+          { cuentaId: origen.cuentaContableId, debe: 0, haber: conversion.montoEnBase },
         ],
       });
 
@@ -197,6 +219,31 @@ export class TransaccionesService {
         `La cuenta contable "${cuenta.codigo}" no es transaccional; usa una cuenta que acepte movimientos`,
       );
     }
+    // La cuenta contra no puede ser la contable de una caja/banco: el asiento
+    // descuadraría el libro diario frente a los saldos operativos (subledger).
+    const vinculadas = await this.dataSource
+      .getRepository(CuentaFinanciera)
+      .count({ where: { cuentaContableId } });
+    if (vinculadas > 0) {
+      throw new BadRequestException(
+        `La cuenta contable "${cuenta.codigo}" está vinculada a una caja o banco; para mover dinero entre cajas usa una transferencia, y para registrar el movimiento usa una cuenta de resultado o patrimonio (ej: clase 4 o 5)`,
+      );
+    }
+  }
+
+  private async calcularConversion(
+    moneda: string | undefined,
+    monto: number,
+  ): Promise<{ montoEnBase: number; tasaAplicada: string; tipoCambioId: string | null }> {
+    if ((moneda ?? 'BOB') === 'BOB') {
+      return { montoEnBase: monto, tasaAplicada: '1.0000', tipoCambioId: null };
+    }
+    const tipoCambio = await this.tipoCambioService.obtenerTasaDelDia();
+    return {
+      montoEnBase: this.redondear(monto * Number(tipoCambio.tasa)),
+      tasaAplicada: tipoCambio.tasa,
+      tipoCambioId: tipoCambio.id ?? null,
+    };
   }
 
   private redondear(valor: number): number {

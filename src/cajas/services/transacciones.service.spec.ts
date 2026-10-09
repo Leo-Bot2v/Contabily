@@ -14,9 +14,11 @@ type MockManager = {
 describe('TransaccionesService', () => {
   let service: TransaccionesService;
   let manager: MockManager;
-  let dataSource: { transaction: ReturnType<typeof vi.fn> };
+  let dataSource: { transaction: ReturnType<typeof vi.fn>; getRepository: ReturnType<typeof vi.fn> };
   let asientosService: { crearAsiento: ReturnType<typeof vi.fn> };
   let planCuentasService: { obtenerCuentaPorId: ReturnType<typeof vi.fn> };
+  let tipoCambioService: { obtenerTasaDelDia: ReturnType<typeof vi.fn> };
+  let cuentasContablesVinculadas: number;
   let cuentas: Record<string, Partial<CuentaFinanciera>>;
 
   const cuentaContableTransaccional = {
@@ -31,6 +33,7 @@ describe('TransaccionesService', () => {
         id: 'origen',
         nombre: 'Caja Chica',
         activo: true,
+        moneda: 'BOB',
         saldo: '200.00',
         cuentaContableId: 'cc-caja',
       },
@@ -38,6 +41,7 @@ describe('TransaccionesService', () => {
         id: 'destino',
         nombre: 'Banco Union',
         activo: true,
+        moneda: 'BOB',
         saldo: '50.00',
         cuentaContableId: 'cc-banco',
       },
@@ -54,7 +58,11 @@ describe('TransaccionesService', () => {
 
     dataSource = {
       transaction: vi.fn(async (callback) => callback(manager)),
+      getRepository: vi.fn(() => ({
+        count: vi.fn(async () => cuentasContablesVinculadas),
+      })),
     };
+    cuentasContablesVinculadas = 0;
 
     asientosService = {
       crearAsiento: vi.fn().mockResolvedValue({ id: 'asiento-1' }),
@@ -64,11 +72,16 @@ describe('TransaccionesService', () => {
       obtenerCuentaPorId: vi.fn().mockResolvedValue(cuentaContableTransaccional),
     };
 
+    tipoCambioService = {
+      obtenerTasaDelDia: vi.fn().mockResolvedValue({ id: 'tc-1', tasa: '11.8500' }),
+    };
+
     service = new TransaccionesService(
       {} as never,
       dataSource as never,
       asientosService as never,
       planCuentasService as never,
+      tipoCambioService as never,
     );
   });
 
@@ -114,6 +127,19 @@ describe('TransaccionesService', () => {
       ).rejects.toThrow(BadRequestException);
       expect(dataSource.transaction).not.toHaveBeenCalled();
     });
+
+    it('rechaza el ingreso si la cuenta contra está vinculada a una caja', async () => {
+      cuentasContablesVinculadas = 1;
+
+      await expect(
+        service.registrarIngreso({
+          cuentaFinancieraId: 'origen',
+          monto: 10,
+          cuentaContableId: 'cc-caja-otra',
+        }),
+      ).rejects.toThrow('vinculada a una caja');
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
   });
 
   describe('registrarEgreso', () => {
@@ -147,6 +173,19 @@ describe('TransaccionesService', () => {
       ).rejects.toThrow('Saldo insuficiente');
       expect(asientosService.crearAsiento).not.toHaveBeenCalled();
       expect(manager.update).not.toHaveBeenCalled();
+    });
+
+    it('rechaza el egreso si la cuenta contra está vinculada a una caja', async () => {
+      cuentasContablesVinculadas = 1;
+
+      await expect(
+        service.registrarEgreso({
+          cuentaFinancieraId: 'origen',
+          monto: 10,
+          cuentaContableId: 'cc-caja-otra',
+        }),
+      ).rejects.toThrow('vinculada a una caja');
+      expect(dataSource.transaction).not.toHaveBeenCalled();
     });
 
     it('rechaza el egreso si la cuenta financiera está inactiva', async () => {
@@ -203,6 +242,93 @@ describe('TransaccionesService', () => {
         }),
       ).rejects.toThrow('Saldo insuficiente');
       expect(manager.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('moneda y tipo de cambio', () => {
+    it('los movimientos en BOB no consultan el tipo de cambio', async () => {
+      const transaccion = await service.registrarIngreso({
+        cuentaFinancieraId: 'origen',
+        monto: 150.5,
+        cuentaContableId: 'cc-ingreso',
+      });
+
+      expect(tipoCambioService.obtenerTasaDelDia).not.toHaveBeenCalled();
+      expect(transaccion.tasaAplicada).toBe('1.0000');
+      expect(transaccion.tipoCambioId).toBeNull();
+    });
+
+    it('un ingreso en USD convierte el asiento a BOB con la tasa del día', async () => {
+      cuentas.origen.moneda = 'USD';
+
+      const transaccion = await service.registrarIngreso({
+        cuentaFinancieraId: 'origen',
+        monto: 10,
+        cuentaContableId: 'cc-ingreso',
+      });
+
+      expect(tipoCambioService.obtenerTasaDelDia).toHaveBeenCalledTimes(1);
+      expect(transaccion.monto).toBe('10.00');
+      expect(transaccion.montoEnMonedaBase).toBe('118.50');
+      expect(transaccion.tasaAplicada).toBe('11.8500');
+      expect(transaccion.tipoCambioId).toBe('tc-1');
+      // el saldo de la cuenta sigue en su propia moneda (USD)
+      expect(manager.update).toHaveBeenCalledWith(CuentaFinanciera, 'origen', { saldo: '210.00' });
+
+      const asiento = asientosService.crearAsiento.mock.calls[0][1];
+      expect(asiento.detalles[0]).toMatchObject({ cuentaId: 'cc-caja', debe: 118.5, haber: 0 });
+      expect(asiento.detalles[1]).toMatchObject({ cuentaId: 'cc-ingreso', debe: 0, haber: 118.5 });
+    });
+
+    it('un egreso en USD convierte el asiento a BOB con la tasa del día', async () => {
+      cuentas.origen.moneda = 'USD';
+
+      const transaccion = await service.registrarEgreso({
+        cuentaFinancieraId: 'origen',
+        monto: 5,
+        cuentaContableId: 'cc-gasto',
+      });
+
+      expect(transaccion.montoEnMonedaBase).toBe('59.25');
+      expect(transaccion.tasaAplicada).toBe('11.8500');
+      expect(transaccion.tipoCambioId).toBe('tc-1');
+      expect(manager.update).toHaveBeenCalledWith(CuentaFinanciera, 'origen', { saldo: '195.00' });
+
+      const asiento = asientosService.crearAsiento.mock.calls[0][1];
+      expect(asiento.detalles[0]).toMatchObject({ cuentaId: 'cc-gasto', debe: 59.25, haber: 0 });
+      expect(asiento.detalles[1]).toMatchObject({ cuentaId: 'cc-caja', debe: 0, haber: 59.25 });
+    });
+
+    it('rechaza transferencias entre cuentas de distinta moneda', async () => {
+      cuentas.destino.moneda = 'USD';
+
+      await expect(
+        service.realizarTransferencia({
+          cuentaOrigenId: 'origen',
+          cuentaDestinoId: 'destino',
+          monto: 10,
+        }),
+      ).rejects.toThrow('misma moneda');
+      expect(asientosService.crearAsiento).not.toHaveBeenCalled();
+      expect(manager.update).not.toHaveBeenCalled();
+    });
+
+    it('una transferencia en USD usa la tasa para el asiento', async () => {
+      cuentas.origen.moneda = 'USD';
+      cuentas.destino.moneda = 'USD';
+
+      const transaccion = await service.realizarTransferencia({
+        cuentaOrigenId: 'origen',
+        cuentaDestinoId: 'destino',
+        monto: 2,
+      });
+
+      expect(transaccion.montoEnMonedaBase).toBe('23.70');
+      expect(transaccion.tasaAplicada).toBe('11.8500');
+      expect(transaccion.tipoCambioId).toBe('tc-1');
+      const asiento = asientosService.crearAsiento.mock.calls[0][1];
+      expect(asiento.detalles[0]).toMatchObject({ cuentaId: 'cc-banco', debe: 23.7, haber: 0 });
+      expect(asiento.detalles[1]).toMatchObject({ cuentaId: 'cc-caja', debe: 0, haber: 23.7 });
     });
   });
 

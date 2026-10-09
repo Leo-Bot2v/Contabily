@@ -4,10 +4,12 @@ import {
   IsBoolean,
   IsUUID,
   IsEnum,
+  IsIn,
   IsNumber,
   MaxLength,
   Min,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 import { TipoCuentaFinanciera } from '../entities/cuenta-financiera.entity.js';
@@ -22,24 +24,50 @@ export class CrearCuentaFinancieraDto {
   @IsEnum(TipoCuentaFinanciera, { message: 'El tipo debe ser EFECTIVO o BANCO' })
   tipo: TipoCuentaFinanciera;
 
-  @ApiPropertyOptional({ description: 'Moneda (código ISO 4217)', example: 'BOB', default: 'BOB' })
+  @ApiPropertyOptional({
+    description: 'Moneda (solo BOB o USD — la API del BCB no cotiza otras; se normaliza a mayúsculas)',
+    example: 'BOB',
+    default: 'BOB',
+    enum: ['BOB', 'USD'],
+  })
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
   @IsString({ message: 'La moneda debe ser una cadena de texto' })
-  @MaxLength(3, { message: 'La moneda debe tener 3 caracteres (ISO 4217)' })
+  @IsIn(['BOB', 'USD'], { message: 'La moneda debe ser BOB o USD' })
   moneda?: string;
 
-  @ApiProperty({ description: 'Cuenta contable oficial vinculada (debe ser transaccional)' })
+  @ApiProperty({
+    description:
+      'UUID de la cuenta contable vinculada (debe ser transaccional; obtener de GET /api/v1/contabilidad/plan-cuentas)',
+    example: 'b4755a45-520f-4954-9e06-55eec8f43a27',
+  })
   @IsUUID(4, { message: 'cuentaContableId debe ser un UUID válido' })
   cuentaContableId: string;
 
-  @ApiPropertyOptional({ description: 'Saldo inicial de la cuenta', example: 0, default: 0 })
+  @ApiPropertyOptional({
+    description:
+      'Saldo inicial de la cuenta (requiere cuentaAperturaId para generar el asiento de apertura)',
+    example: 0,
+    default: 0,
+  })
   @IsOptional()
   @IsNumber(
     { maxDecimalPlaces: 2 },
-    { message: 'El saldo inicial debe ser un número con máximo 2 decimales' },
+    {
+      message: 'El saldo inicial debe ser un número con máximo 2 decimales',
+    },
   )
   @Min(0, { message: 'El saldo inicial no puede ser negativo' })
   saldoInicial?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'UUID de la cuenta contable para el asiento de apertura — Obligatorio si saldoInicial > 0 (ej: 3.1 Capital); debe ser transaccional y no estar vinculada a una caja/banco',
+    example: 'b4755a45-520f-4954-9e06-55eec8f43a27',
+  })
+  @IsOptional()
+  @IsUUID(4, { message: 'cuentaAperturaId debe ser un UUID válido' })
+  cuentaAperturaId?: string;
 
   @ApiPropertyOptional({ description: 'Si la cuenta está activa', default: true })
   @IsOptional()
@@ -60,7 +88,11 @@ export class RegistrarMovimientoDto {
   @Min(0.01, { message: 'El monto debe ser mayor a 0' })
   monto: number;
 
-  @ApiProperty({ description: 'Cuenta contable del lado contrario (ingreso o gasto)', example: '4.1.01' })
+  @ApiProperty({
+    description:
+      'UUID de la cuenta contable del lado contrario — ingreso (ej: clase 4) o gasto (ej: clase 5); obtener de GET /api/v1/contabilidad/plan-cuentas',
+    example: '40c78da6-e335-4355-aa98-7576c9e5f252',
+  })
   @IsUUID(4, { message: 'cuentaContableId debe ser un UUID válido' })
   cuentaContableId: string;
 

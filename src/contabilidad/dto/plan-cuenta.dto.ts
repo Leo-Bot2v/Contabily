@@ -3,13 +3,18 @@ import {
   IsOptional,
   IsBoolean,
   IsUUID,
+  Matches,
   MaxLength,
 } from 'class-validator';
+
+const PATRON_CODIGO = /^\d+(\.\d+)*$/;
+const MENSAJE_CODIGO = 'El código debe contener solo números separados por puntos (ej: 1.1.1.01)';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CrearCuentaDto {
   @ApiProperty({ description: 'Nomenclatura contable única', example: '1.1.1.01' })
   @IsString({ message: 'El código debe ser una cadena de texto' })
+  @Matches(PATRON_CODIGO, { message: MENSAJE_CODIGO })
   @MaxLength(20, { message: 'El código no puede exceder 20 caracteres' })
   codigo: string;
 
@@ -33,6 +38,7 @@ export class ActualizarCuentaDto {
   @ApiPropertyOptional({ description: 'Nomenclatura contable única', example: '1.1.1.01' })
   @IsOptional()
   @IsString({ message: 'El código debe ser una cadena de texto' })
+  @Matches(PATRON_CODIGO, { message: MENSAJE_CODIGO })
   @MaxLength(20, { message: 'El código no puede exceder 20 caracteres' })
   codigo?: string;
 

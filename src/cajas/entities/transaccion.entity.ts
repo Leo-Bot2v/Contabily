@@ -11,6 +11,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 import type { CuentaFinanciera } from './cuenta-financiera.entity.js';
 import { CuentaFinanciera as CuentaFinancieraClass } from './cuenta-financiera.entity.js';
+import { TipoCambio } from '../../tipo-cambio/entities/tipo-cambio.entity.js';
 
 export enum TipoTransaccion {
   INGRESO = 'INGRESO',
@@ -40,6 +41,30 @@ export class Transaccion {
   @ApiProperty({ description: 'Monto del movimiento', example: 1500.0 })
   @Column({ type: 'decimal', precision: 15, scale: 2, name: 'monto' })
   monto: string;
+
+  @ApiProperty({
+    description: 'Monto convertido a la moneda base (BOB) usado en el asiento contable',
+    example: 17775.0,
+  })
+  @Column({ type: 'decimal', precision: 15, scale: 2, name: 'monto_en_moneda_base' })
+  montoEnMonedaBase: string;
+
+  @ApiProperty({
+    description: 'Tasa usada para convertir a moneda base (1.0000 en cuentas BOB)',
+    example: 11.85,
+  })
+  @Column({ type: 'decimal', precision: 10, scale: 4, name: 'tasa_aplicada' })
+  tasaAplicada: string;
+
+  @ApiPropertyOptional({
+    description: 'Registro de tipos_cambio aplicado (null en movimientos en BOB)',
+  })
+  @Column({ type: 'uuid', nullable: true, name: 'tipo_cambio_id' })
+  tipoCambioId: string | null;
+
+  @ManyToOne(() => TipoCambio, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'tipo_cambio_id' })
+  tipoCambio: TipoCambio | null;
 
   @ApiPropertyOptional({ description: 'Descripción del movimiento', example: 'Venta de contado' })
   @Column({ type: 'text', nullable: true, name: 'descripcion' })

@@ -63,4 +63,4 @@ async function bootstrap() {
   console.log(`   DB:      ${configService.get('database.host')}:${configService.get('database.port')}/${configService.get('database.name')}\n`);
 }
 
-bootstrap();
+void bootstrap();

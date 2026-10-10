@@ -26,7 +26,7 @@ services:
     image: dpage/pgadmin4:latest
     container_name: contabily-pgadmin-test
     environment:
-      PGADMIN_DEFAULT_EMAIL: test@contabily.local
+      PGADMIN_DEFAULT_EMAIL: test@example.com
       PGADMIN_DEFAULT_PASSWORD: test1234
       PGADMIN_CONFIG_SERVER_MODE: 'False'
     ports:

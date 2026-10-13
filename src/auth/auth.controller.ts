@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Query,
   Body,
   Req,
   Res,
@@ -10,7 +11,8 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 
 import { AuthService } from './services/auth.service.js';
@@ -45,6 +47,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly localAuthService: LocalAuthService,
+    private readonly configService: ConfigService,
   ) {}
 
   // ==================== REGISTRO ====================
@@ -72,38 +75,69 @@ export class AuthController {
 
   @Get('google')
   @ApiOperation({ summary: 'Obtener URL para autenticación con Google' })
+  @ApiQuery({
+    name: 'mode',
+    required: false,
+    enum: ['redirect', 'json'],
+    description:
+      'redirect (por defecto): el callback responde con 302 a FRONTEND_URL/auth/callback ' +
+      'llevando el código, que el frontend canjea con POST /auth/google/callback. ' +
+      'json: el callback canjea el código y devuelve { user, tokens } en la respuesta, ' +
+      'para probar el flujo sin frontend desde Swagger o curl.',
+  })
   @ApiResponse({ status: 200, type: GoogleAuthUrlDto })
-  async getGoogleAuthUrl(): Promise<GoogleAuthUrlDto> {
-    return this.authService.getGoogleAuthUrl();
+  async getGoogleAuthUrl(@Query('mode') mode?: string): Promise<GoogleAuthUrlDto> {
+    return this.authService.getGoogleAuthUrl(mode === 'json' ? 'json' : 'redirect');
   }
 
   @Get('google/callback')
   @UseGuards(GoogleAuthGuard)
   @ApiOperation({ summary: 'Callback de Google OAuth' })
-  @ApiResponse({ status: 200, type: AuthResponseDto })
+  @ApiResponse({ status: 200, type: AuthResponseDto, description: 'Modo json: devuelve los tokens' })
+  @ApiResponse({ status: 302, description: 'Modo redirect: redirige al frontend con el código' })
   @ApiResponse({ status: 401, description: 'Error en autenticación Google' })
   async googleCallback(@Req() req: Request, @Res() res: Response): Promise<void> {
-    // El guard GoogleAuthGuard maneja la autenticación y adjunta el usuario a req.user
-    // En modo local, redirigimos al frontend con tokens
-    // En modo Supabase, Supabase maneja la redirección
+    const peticion = req as Request & {
+      modoCallbackGoogle?: 'json' | 'redirect';
+      codigoGoogle?: string;
+      user?: unknown;
+      tokens?: unknown;
+    };
 
-    const user = req.user as any;
-    const tokens = (req as any).tokens;
-
-    if (this.authService.isLocalMode()) {
-      // Redirigir al frontend con tokens en query params (o usar cookies)
-      const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
-      const redirectUrl = `${frontendUrl}/auth/callback?` +
-        `access_token=${tokens.accessToken}&` +
-        `refresh_token=${tokens.refreshToken}&` +
-        `expires_in=${tokens.expiresIn}`;
-
-      return res.redirect(redirectUrl);
+    // Supabase Auth: él ya gestionó la redirección por su cuenta.
+    if (!this.authService.isLocalMode()) {
+      res.json({ message: 'Autenticado con Supabase' });
+      return;
     }
 
-    // Modo Supabase: ya redirigió Supabase
-    res.json({ message: 'Autenticado con Supabase' });
-    return;
+    // Contrato B: el código viaja al frontend, que lo canjea con
+    // POST /auth/google/callback. El guard lo dejó sin gastar a propósito,
+    // porque el código de Google es de un solo uso.
+    if (peticion.modoCallbackGoogle !== 'json') {
+      const frontendUrl = (
+        this.configService.get<string>('app.frontendUrl') ?? ''
+      ).replace(/\/+$/, '');
+      const codigo = peticion.codigoGoogle;
+
+      if (frontendUrl && codigo) {
+        this.logger.log(`Google OAuth: redirigiendo al frontend con el código`);
+        res.redirect(`${frontendUrl}/auth/callback?code=${encodeURIComponent(codigo)}`);
+        return;
+      }
+
+      // No hay a dónde redirigir: se canjea aquí para no dejar la petición
+      // sin respuesta. Solo cabe con mode=redirect y FRONTEND_URL vacío.
+      if (!codigo) {
+        res.status(HttpStatus.BAD_REQUEST).json({ message: 'Código de autorización requerido' });
+        return;
+      }
+
+      res.json(await this.authService.handleGoogleCallback(codigo));
+      return;
+    }
+
+    // Modo json: el guard ya canjeó el código y dejó el resultado en la petición.
+    res.json({ user: peticion.user, tokens: peticion.tokens });
   }
 
   // Callback alternativo para modo local sin Passport (usando código directamente)

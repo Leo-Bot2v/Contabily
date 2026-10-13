@@ -1,6 +1,8 @@
 import { Injectable, ExecutionContext, UnauthorizedException, Logger } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 
+import { leerModoCallbackGoogle } from '../utils/google-state.js';
+
 @Injectable()
 export class GoogleAuthGuard extends AuthGuard('google') {
   private readonly logger = new Logger(GoogleAuthGuard.name);
@@ -21,11 +23,22 @@ export class GoogleAuthGuard extends AuthGuard('google') {
         return this.initiateGoogleOAuth(request);
       }
 
+      const modo = leerModoCallbackGoogle(request.query.state);
+      request.modoCallbackGoogle = modo;
+
+      // En modo `redirect` no se canjea el código: viaja al frontend y lo
+      // canjea él con POST /auth/google/callback. El código de Google es de un
+      // solo uso, así que si lo gastáramos aquí, esa petición fallaría.
+      if (modo === 'redirect') {
+        request.codigoGoogle = code;
+        return true;
+      }
+
       try {
         // Intercambiar código por perfil
         const result = await authService.handleGoogleCallback(code);
         request.user = result.user;
-        (request as any).tokens = result.tokens;
+        request.tokens = result.tokens;
         return true;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
@@ -40,7 +53,11 @@ export class GoogleAuthGuard extends AuthGuard('google') {
 
   private async initiateGoogleOAuth(request: any): Promise<boolean> {
     const authService = request.app.get('AuthService');
-    const { authUrl } = await authService.getGoogleAuthUrl();
+    // Sin código no hay state que leer, así que el modo se toma de la query
+    // para que GET /auth/google/callback?mode=json se comporte igual que
+    // GET /auth/google?mode=json.
+    const modo = request.query?.mode === 'json' ? 'json' : 'redirect';
+    const { authUrl } = await authService.getGoogleAuthUrl(modo);
 
     // Redirigir a Google
     const response = request.res;

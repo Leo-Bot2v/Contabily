@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 
+import { codificarEstadoGoogle, type ModoCallbackGoogle } from '../utils/google-state.js';
 import { Usuario as User, UserProvider, UserRole } from '../entities/user.entity.js';
 import { LocalAuthService } from './local-auth.service.js';
 import { SupabaseService, SupabaseAuthResult } from './supabase.service.js';
@@ -85,8 +86,10 @@ export class AuthService {
 
   // ==================== GOOGLE OAUTH ====================
 
-  async getGoogleAuthUrl(): Promise<GoogleAuthUrlDto> {
+  async getGoogleAuthUrl(modo: ModoCallbackGoogle = 'redirect'): Promise<GoogleAuthUrlDto> {
     if (this.isSupabaseMode()) {
+      // En modo Supabase el redirect lo gestiona Supabase, así que el modo
+      // (redirect vs json) no aplica aquí.
       const { url, error } = await this.supabaseService.signInWithGoogle();
       if (error || !url) {
         throw new UnauthorizedException('Error iniciando OAuth con Google');
@@ -98,7 +101,7 @@ export class AuthService {
     const callbackUrl = this.configService.get<string>('googleOAuth.callbackUrl') ?? 'http://localhost:3000/api/v1/auth/google/callback';
     const clientId = this.configService.get<string>('googleOAuth.clientId') ?? '';
     const scope = encodeURIComponent('email profile');
-    const state = Buffer.from(JSON.stringify({ provider: 'google' })).toString('base64');
+    const state = codificarEstadoGoogle(modo);
 
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
       `client_id=${clientId}&` +

@@ -6,7 +6,6 @@ import {
   Delete,
   Body,
   Param,
-  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -15,7 +14,7 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { EmpresaService } from './empresa.service.js';
-import type { CrearEmpresaDto, ActualizarEmpresaDto } from './empresa.service.js';
+import { CrearEmpresaDto, ActualizarEmpresaDto } from './dto/empresa.dto.js';
 
 @ApiTags('Empresas')
 @Controller('empresas')
@@ -59,7 +58,7 @@ export class EmpresaController {
   @ApiResponse({ status: 200 })
   @ApiResponse({ status: 404, description: 'No encontrada' })
   @ApiResponse({ status: 409, description: 'RIF ya existe' })
-  async actualizar(@Req() req: any, @Param('id') id: string, @Body() dto: any) {
+  async actualizar(@Req() req: any, @Param('id') id: string, @Body() dto: ActualizarEmpresaDto) {
     return this.empresaService.actualizar(id, req.user.id, dto);
   }
 

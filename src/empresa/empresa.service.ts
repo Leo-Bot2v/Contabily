@@ -1,43 +1,11 @@
 import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Empresa, TipoNegocio, Moneda } from './entities/empresa.entity.js';
+import { Empresa } from './entities/empresa.entity.js';
 import { Usuario } from '../auth/entities/user.entity.js';
 import { PlanCuentasService } from '../contabilidad/services/plan-cuentas.service.js';
 import { GastosService } from '../compras/services/gastos.service.js';
-
-export interface CrearEmpresaDto {
-  nombre: string;
-  razonSocial?: string;
-  rif: string;
-  direccionFiscal?: string;
-  telefono?: string;
-  email?: string;
-  sitioWeb?: string;
-  logoUrl?: string;
-  tipo?: TipoNegocio;
-  moneda?: Moneda;
-  zonaHoraria?: string;
-  locale?: string;
-  configuracion?: Record<string, any>;
-}
-
-export interface ActualizarEmpresaDto {
-  nombre?: string;
-  razonSocial?: string;
-  rif?: string;
-  direccionFiscal?: string;
-  telefono?: string;
-  email?: string;
-  sitioWeb?: string;
-  logoUrl?: string;
-  tipo?: TipoNegocio;
-  moneda?: Moneda;
-  zonaHoraria?: string;
-  locale?: string;
-  activo?: boolean;
-  configuracion?: Record<string, any>;
-}
+import type { CrearEmpresaDto, ActualizarEmpresaDto } from './dto/empresa.dto.js';
 
 @Injectable()
 export class EmpresaService {
@@ -58,11 +26,11 @@ export class EmpresaService {
       throw new ConflictException('Ya existe una empresa con ese RIF para este usuario');
     }
 
-    const empresa = this.empresaRepository.create({
-      ...dto,
-      usuarioId: usuario.id,
-      usuario,
-    });
+    // Object.assign en vez de spread: `dto` ahora es una instancia de clase y
+    // extenderla perdería el prototipo. Solo se copian las propiedades propias,
+    // es decir, exactamente los campos que el cliente envió.
+    const empresa = this.empresaRepository.create();
+    Object.assign(empresa, dto, { usuarioId: usuario.id, usuario });
 
     const guardada = await this.empresaRepository.save(empresa);
 

@@ -53,6 +53,19 @@ export interface SecurityConfig {
     publicKey: string;
     keysDir: string;
   };
+  /**
+   * Protección contra fuerza bruta en login. Desactivada por defecto a
+   * propósito: bloquear la IP a5 fallos durante una hora deja al dueño de la
+   * aplicación sin poder ni registrar ni entrar en su propia demo. El
+   * registro de auditoría se emite igualmente, así que la detección sigue
+   * siendo visible en los logs aunque no se bloquee.
+   */
+  bruteForce: {
+    enabled: boolean;
+    maxAttempts: number;
+    windowMinutes: number;
+    blockSeconds: number;
+  };
 }
 
 /**
@@ -111,5 +124,11 @@ export const securityConfig = registerAs('security', (): SecurityConfig => ({
     privateKey: process.env.JWT_PRIVATE_KEY ?? '',
     publicKey: process.env.JWT_PUBLIC_KEY ?? '',
     keysDir: process.env.JWT_KEYS_DIR ?? './keys',
+  },
+  bruteForce: {
+    enabled: process.env.AUTH_BRUTE_FORCE_ENABLED === 'true',
+    maxAttempts: parseInt(process.env.AUTH_BRUTE_FORCE_MAX_ATTEMPTS ?? '5', 10),
+    windowMinutes: parseInt(process.env.AUTH_BRUTE_FORCE_WINDOW_MINUTES ?? '15', 10),
+    blockSeconds: parseInt(process.env.AUTH_IP_BLOCK_SECONDS ?? '900', 10),
   },
 }));

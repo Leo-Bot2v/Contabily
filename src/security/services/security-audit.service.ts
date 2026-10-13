@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { RedisClientType } from 'redis';
 import { REDIS_CLIENT } from '../redis.module.js';
+import type { SecurityConfig } from '../../config/configuration.js';
 
 export interface SecurityEvent {
   eventId: string;
@@ -40,7 +42,10 @@ export class SecurityAuditService {
   private readonly logger = new Logger(SecurityAuditService.name);
   private readonly RETENTION_DAYS = 90;
 
-  constructor(@Inject(REDIS_CLIENT) private readonly redis: RedisClientType) {}
+  constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: RedisClientType,
+    private readonly configService: ConfigService,
+  ) {}
 
   // ==================== REGISTRO DE EVENTOS ====================
 
@@ -123,29 +128,43 @@ export class SecurityAuditService {
   // ==================== DETECCIÓN DE AMENAZAS ====================
 
   private async checkBruteForce(ip: string, email?: string): Promise<void> {
-    const windowMs = 15 * 60 * 1000; // 15 minutos
-    const maxAttempts = 5;
+    const { enabled, maxAttempts, windowMinutes, blockSeconds } =
+      this.configService.get<SecurityConfig['bruteForce']>('security.bruteForce') ?? {
+        enabled: false,
+        maxAttempts: 5,
+        windowMinutes: 15,
+        blockSeconds: 900,
+      };
 
+    const windowMs = windowMinutes * 60 * 1000;
     const key = `brute_force:${ip}`;
     const count = await this.redis.incr(key);
-    
+
     if (count === 1) {
       await this.redis.pExpire(key, windowMs);
     }
 
-    if (count >= maxAttempts) {
+    if (count < maxAttempts) return;
+
+    // Auditoría: se emite una sola vez, justo al cruzar el umbral, para no
+    // llenar el registro con eventos repetidos en cada intento adicional.
+    if (count === maxAttempts) {
       await this.logEvent({
         eventType: 'brute_force_detected',
         ip,
         email,
         success: false,
         severity: 'high',
-        details: { attempts: count, windowMs },
+        details: { attempts: count, windowMs, blocked: enabled },
         userAgent: '',
       });
+    }
 
-      // Opcional: bloquear IP temporalmente
-      await this.redis.setEx(`blocked_ip:${ip}`, 3600, 'brute_force');
+    // El bloqueo está desactivado por defecto (AUTH_BRUTE_FORCE_ENABLED=false):
+    // cortar la IP a5 fallos durante una hora impedía al dueño de la aplicación
+    // registrar ni entrar en su propia demo.
+    if (enabled) {
+      await this.redis.setEx(`blocked_ip:${ip}`, blockSeconds, 'brute_force');
     }
   }
 

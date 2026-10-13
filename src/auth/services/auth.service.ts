@@ -17,6 +17,7 @@ import {
   LoginDto,
   RefreshTokenDto,
   ChangePasswordDto,
+  ActualizarPerfilDto,
   ForgotPasswordDto,
   ResetPasswordDto,
   VerifyEmailDto,
@@ -260,9 +261,12 @@ export class AuthService {
     return UserResponseDto.fromEntity(user);
   }
 
-  async updateProfile(userId: string, data: Partial<User>): Promise<UserResponseDto> {
-    // Implementar según necesidades
-    throw new Error('No implementado');
+  async updateProfile(userId: string, dto: ActualizarPerfilDto): Promise<UserResponseDto> {
+    // El DTO es una lista blanca, así que al repositorio solo llegan nombre,
+    // teléfono y avatar. Leer y escribir apuntan al mismo `usuarios`, igual
+    // que hace getProfile, así que no hace falta distinguir por modo.
+    const user = await this.localAuthService.actualizarPerfil(userId, dto);
+    return UserResponseDto.fromEntity(user);
   }
 
   // ==================== CAMBIO DE CONTRASEÑA ====================

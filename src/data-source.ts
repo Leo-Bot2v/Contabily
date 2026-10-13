@@ -31,6 +31,7 @@ import { FaltantesSincronizacionInicial1791590000000 } from './migrations/179159
 import { AgregarEmpresaIdAModulosContables1791604000000 } from './migrations/1791604000000-AgregarEmpresaIdAModulosContables.js';
 import { CrearModuloComprasYGastos1791700000000 } from './migrations/1791700000000-CrearModuloComprasYGastos.js';
 import { AgregarCorrelativoYEstadoAAsientos1791800000000 } from './migrations/1791800000000-AgregarCorrelativoYEstadoAAsientos.js';
+import { AgregarTelefonoAUsuarios1791900000000 } from './migrations/1791900000000-AgregarTelefonoAUsuarios.js';
 
 // Carga manual de .env: el CLI de TypeORM corre fuera de Nest y necesita las credenciales.
 function cargarEnv(): void {
@@ -91,6 +92,7 @@ export const AppDataSource = new DataSource({
     AgregarEmpresaIdAModulosContables1791604000000,
     CrearModuloComprasYGastos1791700000000,
     AgregarCorrelativoYEstadoAAsientos1791800000000,
+    AgregarTelefonoAUsuarios1791900000000,
   ],
   synchronize: false,
   logging: false,

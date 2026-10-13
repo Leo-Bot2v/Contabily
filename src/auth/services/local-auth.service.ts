@@ -14,7 +14,13 @@ import { randomBytes, createHash } from 'crypto';
 import { Request } from 'express';
 
 import { Usuario as User, UserProvider, UserRole } from '../entities/user.entity.js';
-import { RegisterDto, LoginDto, ChangePasswordDto, RefreshTokenDto } from '../dto/auth.dto.js';
+import {
+  RegisterDto,
+  LoginDto,
+  ChangePasswordDto,
+  RefreshTokenDto,
+  ActualizarPerfilDto,
+} from '../dto/auth.dto.js';
 import { TokenPayload } from '../dto/response.dto.js';
 import { JwtConfig } from '../../config/configuration.js';
 
@@ -581,6 +587,33 @@ export class LocalAuthService {
 
   async findByProviderId(provider: UserProvider, providerId: string): Promise<User | null> {
     return this.userRepository.findOne({ where: { proveedor: provider, proveedorId: providerId } });
+  }
+
+  /**
+   * Aplica los campos editables del perfil.
+   *
+   * El DTO es una lista blanca (nombre, teléfono y avatar), así que aquí no
+   * puede llegar ni `correo`, ni `roles`, ni `hashContrasena`. Solo se asigna
+   * lo que el cliente envió de verdad: un campo ausente no pisa el valor
+   * guardado, y un string vacío se guarda como NULL en vez de dejar un
+   * teléfono en blanco en la base.
+   */
+  async actualizarPerfil(userId: string, dto: ActualizarPerfilDto): Promise<User> {
+    const user = await this.findById(userId);
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    const aNullable = (valor: string): string | null =>
+      valor.trim() === '' ? null : valor.trim();
+
+    if (dto.nombreCompleto !== undefined) user.nombreCompleto = aNullable(dto.nombreCompleto);
+    if (dto.telefono !== undefined) user.telefono = aNullable(dto.telefono);
+    if (dto.urlAvatar !== undefined) user.urlAvatar = aNullable(dto.urlAvatar);
+
+    const guardado = await this.userRepository.save(user);
+    this.logger.log(`Perfil actualizado: ${guardado.correo}`);
+    return guardado;
   }
 
   // ==================== PRIVADOS ====================

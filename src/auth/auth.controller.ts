@@ -6,6 +6,7 @@ import {
   Body,
   Req,
   Res,
+  Patch,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -26,6 +27,7 @@ import {
   LoginDto,
   RefreshTokenDto,
   ChangePasswordDto,
+  ActualizarPerfilDto,
   ForgotPasswordDto,
   ResetPasswordDto,
   VerifyEmailDto,
@@ -211,6 +213,27 @@ export class AuthController {
   async getProfile(@Req() req: Request): Promise<UserResponseDto> {
     const user = req.user as any;
     return this.authService.getProfile(user.id);
+  }
+
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Actualizar el perfil del usuario autenticado',
+    description:
+      'Acepta solo nombreCompleto, telefono y urlAvatar. Campos no listados ' +
+      '(correo, roles, contraseña…) se descartan con un 400. Un valor vacío borra el dato.',
+  })
+  @ApiResponse({ status: 200, type: UserResponseDto, description: 'Perfil actualizado' })
+  @ApiResponse({ status: 400, description: 'Campo inválido o fuera de la lista blanca' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 404, description: 'Usuario no encontrado' })
+  async updateProfile(
+    @Req() req: Request,
+    @Body() actualizarPerfilDto: ActualizarPerfilDto,
+  ): Promise<UserResponseDto> {
+    const user = req.user as any;
+    return this.authService.updateProfile(user.id, actualizarPerfilDto);
   }
 
   // ==================== CAMBIO DE CONTRASEÑA ====================

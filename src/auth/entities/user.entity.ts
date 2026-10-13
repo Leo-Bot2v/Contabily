@@ -42,6 +42,10 @@ export class Usuario {
   @Column({ type: 'text', nullable: true, name: 'url_avatar' })
   urlAvatar: string | null;
 
+  @ApiPropertyOptional({ description: 'Teléfono de contacto', example: '+58 412 1234567' })
+  @Column({ type: 'varchar', length: 50, nullable: true, name: 'telefono' })
+  telefono: string | null;
+
   @ApiProperty({ description: 'Proveedor de autenticación', enum: UserProvider })
   @Column({
     type: 'enum',

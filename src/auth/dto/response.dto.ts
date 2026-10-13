@@ -28,6 +28,9 @@ export class UserResponseDto {
   @ApiPropertyOptional({ description: 'URL del avatar', example: 'https://...' })
   urlAvatar: string | null;
 
+  @ApiPropertyOptional({ description: 'Teléfono de contacto', example: '+58 412 1234567' })
+  telefono: string | null;
+
   @ApiProperty({ description: 'Proveedor de autenticación', enum: ['local', 'google', 'supabase'] })
   proveedor: string;
 
@@ -52,6 +55,7 @@ export class UserResponseDto {
     dto.correo = user.correo;
     dto.nombreCompleto = user.nombreCompleto;
     dto.urlAvatar = user.urlAvatar;
+    dto.telefono = user.telefono;
     dto.proveedor = user.proveedor;
     dto.roles = user.roles;
     dto.activo = user.activo;

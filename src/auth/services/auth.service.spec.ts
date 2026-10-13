@@ -105,3 +105,72 @@ describe('AuthService.getGoogleAuthUrl en modo Supabase', () => {
     await expect(service.getGoogleAuthUrl()).rejects.toThrow('Error iniciando OAuth con Google');
   });
 });
+
+describe('AuthService.updateProfile', () => {
+  function crearUsuario(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'usuario-1',
+      correo: 'juan@ejemplo.com',
+      nombreCompleto: 'Juan Pérez',
+      urlAvatar: null,
+      telefono: null,
+      proveedor: 'local',
+      roles: ['USUARIO'],
+      activo: true,
+      correoVerificado: true,
+      ultimoLogin: null,
+      creadoEn: new Date('2026-01-01T00:00:00Z'),
+      ...overrides,
+    };
+  }
+
+  function crearService(actualizarPerfil: ReturnType<typeof vi.fn>) {
+    const localAuthService = { actualizarPerfil };
+    const supabase = { isReady: vi.fn(() => false) };
+    const service = new AuthService(crearConfig() as never, localAuthService as never, supabase as never);
+    return { service, actualizarPerfil };
+  }
+
+  it('devuelve el teléfono recién guardado', async () => {
+    const { service, actualizarPerfil } = crearService(
+      vi.fn(async () => crearUsuario({ telefono: '+58 412 1234567' })),
+    );
+
+    const perfil = await service.updateProfile('usuario-1', { telefono: '+58 412 1234567' });
+
+    expect(perfil.telefono).toBe('+58 412 1234567');
+    expect(actualizarPerfil).toHaveBeenCalledWith('usuario-1', { telefono: '+58 412 1234567' });
+  });
+
+  it('devuelve el perfil completo, no solo el campo tocado', async () => {
+    const { service } = crearService(vi.fn(async () => crearUsuario({ telefono: '0412-1234567' })));
+
+    const perfil = await service.updateProfile('usuario-1', { telefono: '0412-1234567' });
+
+    expect(perfil.correo).toBe('juan@ejemplo.com');
+    expect(perfil.nombreCompleto).toBe('Juan Pérez');
+    expect(perfil.telefono).toBe('0412-1234567');
+  });
+
+  it('no inventa campos: pasa el DTO tal como lo recibió', async () => {
+    const { service, actualizarPerfil } = crearService(vi.fn(async () => crearUsuario()));
+
+    await service.updateProfile('usuario-1', { nombreCompleto: 'María Pérez' });
+
+    // Si AuthService añadiera correo, roles o similar por su cuenta, la lista
+    // blanca del DTO habría quedado comprometida por detrás.
+    expect(actualizarPerfil).toHaveBeenCalledWith('usuario-1', { nombreCompleto: 'María Pérez' });
+  });
+
+  it('propaga el 404 cuando el usuario no existe', async () => {
+    const { service } = crearService(
+      vi.fn(async () => {
+        throw new Error('Usuario no encontrado');
+      }),
+    );
+
+    await expect(service.updateProfile('no-existe', { telefono: '123' })).rejects.toThrow(
+      'Usuario no encontrado',
+    );
+  });
+});

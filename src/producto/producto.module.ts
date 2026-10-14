@@ -10,6 +10,7 @@ import { Categoria } from './entities/categoria.entity.js';
 import { Coleccion } from './entities/coleccion.entity.js';
 import { MovimientoInventario } from './entities/movimiento-inventario.entity.js';
 import { Empresa } from '../empresa/entities/empresa.entity.js';
+import { CompraDetalle } from '../compras/entities/compra-detalle.entity.js';
 import { AuthModule } from '../auth/auth.module.js';
 
 @Module({
@@ -21,6 +22,9 @@ import { AuthModule } from '../auth/auth.module.js';
       Coleccion,
       MovimientoInventario,
       Empresa,
+      // Para comprobar si un producto o una variante aparecen en una factura
+      // antes de dejarlos borrables.
+      CompraDetalle,
     ]),
     AuthModule,
   ],

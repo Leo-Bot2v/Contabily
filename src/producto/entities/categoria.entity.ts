@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   ManyToOne,
   OneToMany,
   JoinColumn,
@@ -101,6 +102,17 @@ export class Categoria {
   @ApiProperty({ description: 'Fecha de última actualización' })
   @UpdateDateColumn({ type: 'timestamptz', name: 'actualizado_en' })
   actualizadoEn: Date;
+
+  /**
+   * Fecha de borrado lógico. NULL = activo.
+   *
+   * La FK `productos.categoriaId` es SET NULL: borrar una categoría de verdad
+   * dejaría a sus productos sin categoría y sin poder recuperarlas. Con el
+   * borrado suave la fila sigue ahí y los productos conservan su referencia.
+   */
+  @ApiPropertyOptional({ description: 'Fecha de borrado lógico (NULL = activo)' })
+  @DeleteDateColumn({ type: 'timestamptz', name: 'eliminado_en' })
+  eliminadoEn: Date | null;
 
   // Métodos de conveniencia
   get nombreCompleto(): string {

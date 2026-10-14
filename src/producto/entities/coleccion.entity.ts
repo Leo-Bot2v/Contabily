@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   ManyToOne,
   ManyToMany,
   JoinTable,
@@ -130,6 +131,16 @@ export class Coleccion {
   @ApiProperty({ description: 'Fecha de última actualización' })
   @UpdateDateColumn({ type: 'timestamptz', name: 'actualizado_en' })
   actualizadoEn: Date;
+
+  /**
+   * Fecha de borrado lógico. NULL = activo.
+   *
+   * Las colecciones son etiquetas: las asociaciones con productos se caen solas.
+   * Se mantiene el borrado suave por coherencia con el resto del módulo.
+   */
+  @ApiPropertyOptional({ description: 'Fecha de borrado lógico (NULL = activo)' })
+  @DeleteDateColumn({ type: 'timestamptz', name: 'eliminado_en' })
+  eliminadoEn: Date | null;
 
   // Métodos de conveniencia
   get totalProductos(): number {

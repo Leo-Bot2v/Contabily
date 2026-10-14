@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   ManyToOne,
   JoinColumn,
   Index,
@@ -127,6 +128,17 @@ export class ProductoVariante {
   @ApiProperty({ description: 'Fecha de última actualización' })
   @UpdateDateColumn({ type: 'timestamptz', name: 'actualizado_en' })
   actualizadoEn: Date;
+
+  /**
+   * Fecha de borrado lógico. NULL = activo.
+   *
+   * Las variantes pueden tener sus propios movimientos de stock y aparecer en
+   * `compras_detalles.variante_id`, así que se borran igual que el producto:
+   * sin destruir la fila.
+   */
+  @ApiPropertyOptional({ description: 'Fecha de borrado lógico (NULL = activo)' })
+  @DeleteDateColumn({ type: 'timestamptz', name: 'eliminado_en' })
+  eliminadoEn: Date | null;
 
   // Métodos de conveniencia
   get tieneStock(): boolean {

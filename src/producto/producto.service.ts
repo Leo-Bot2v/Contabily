@@ -13,6 +13,7 @@ import { Categoria } from './entities/categoria.entity.js';
 import { Coleccion } from './entities/coleccion.entity.js';
 import { MovimientoInventario, TipoMovimiento, OrigenMovimiento } from './entities/movimiento-inventario.entity.js';
 import { Empresa } from '../empresa/entities/empresa.entity.js';
+import { CompraDetalle } from '../compras/entities/compra-detalle.entity.js';
 import {
   CrearProductoDto,
   ActualizarProductoDto,
@@ -58,6 +59,8 @@ export class ProductoService {
     private readonly movimientoRepository: Repository<MovimientoInventario>,
     @InjectRepository(Empresa)
     private readonly empresaRepository: Repository<Empresa>,
+    @InjectRepository(CompraDetalle)
+    private readonly compraDetalleRepository: Repository<CompraDetalle>,
   ) {}
 
   // ==================== PRODUCTOS ====================
@@ -382,8 +385,67 @@ export class ProductoService {
 
   async eliminar(id: string, empresaId: string): Promise<void> {
     const producto = await this.buscarPorId(id, empresaId);
+
+    this.verificarBorrable(
+      `el producto "${producto.nombre}"`,
+      await this.enlacesDeProducto(id),
+    );
+
     await this.productoRepository.softRemove(producto);
     this.logger.log(`Producto eliminado: ${producto.nombre} (${producto.sku})`);
+  }
+
+  /**
+   * Cuenta lo que impide borrar un producto: sus líneas de factura y sus
+   * movimientos de stock.
+   */
+  private async enlacesDeProducto(productoId: string): Promise<{ compras: number; movimientos: number }> {
+    const [compras, movimientos] = await Promise.all([
+      this.compraDetalleRepository.count({ where: { productoId } }),
+      this.movimientoRepository.count({ where: { productoId } }),
+    ]);
+    return { compras, movimientos };
+  }
+
+  /** Igual que enlacesDeProducto, pero por la columna de variante. */
+  private async enlacesDeVariante(varianteId: string): Promise<{ compras: number; movimientos: number }> {
+    const [compras, movimientos] = await Promise.all([
+      this.compraDetalleRepository.count({ where: { varianteId } }),
+      this.movimientoRepository.count({ where: { varianteId } }),
+    ]);
+    return { compras, movimientos };
+  }
+
+  /**
+   * Lanza 409 si todavía hay algo enlazado.
+   *
+   * El mensaje desglosa los motivos a propósito: un "no se puede eliminar" a
+   * secas deja a la persona sin saber si es un problema suyo o del sistema.
+   *
+   * Y no es una precaución decorativa: `movimientos_inventario` apunta a
+   * productos con CASCADE, así que un borrado físico borraría el histórico de
+   * stock, y `compras_detalles` con SET NULL dejaría líneas de factura sin
+   * producto asignado.
+   */
+  private verificarBorrable(
+    etiqueta: string,
+    enlaces: { compras: number; movimientos: number },
+  ): void {
+    const partes: string[] = [];
+    if (enlaces.compras > 0) {
+      partes.push(`${enlaces.compras} ${enlaces.compras === 1 ? 'compra' : 'compras'}`);
+    }
+    if (enlaces.movimientos > 0) {
+      partes.push(
+        `${enlaces.movimientos} ${enlaces.movimientos === 1 ? 'movimiento' : 'movimientos'} de inventario`,
+      );
+    }
+
+    if (partes.length > 0) {
+      throw new ConflictException(
+        `No se puede eliminar ${etiqueta}: está en ${partes.join(' y ')}.`,
+      );
+    }
   }
 
   // ==================== VARIANTES ====================
@@ -608,6 +670,11 @@ export class ProductoService {
     if (!variante || variante.producto.empresaId !== empresaId) {
       throw new NotFoundException('Variante no encontrada');
     }
+
+    this.verificarBorrable(
+      `la variante "${variante.nombreCompleto}"`,
+      await this.enlacesDeVariante(varianteId),
+    );
 
     await this.varianteRepository.softRemove(variante);
     this.logger.log(`Variante eliminada: ${variante.nombreCompleto} (${variante.sku})`);

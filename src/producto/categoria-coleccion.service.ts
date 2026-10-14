@@ -165,7 +165,9 @@ export class CategoriaColeccionService {
       where: { padre: { id: id } },
     });
     if (hijos > 0) {
-      throw new ConflictException('No se puede eliminar una categoría que tiene subcategorías');
+      throw new ConflictException(
+        `No se puede eliminar una categoría que tiene ${hijos} ${hijos === 1 ? 'subcategoría' : 'subcategorías'}`,
+      );
     }
 
     // Verificar si tiene productos
@@ -173,7 +175,9 @@ export class CategoriaColeccionService {
       where: { categoriaId: id },
     });
     if (productos > 0) {
-      throw new ConflictException('No se puede eliminar una categoría que tiene productos asignados');
+      throw new ConflictException(
+        `No se puede eliminar una categoría que tiene ${productos} ${productos === 1 ? 'producto asignado' : 'productos asignados'}`,
+      );
     }
 
     await this.categoriaRepository.softRemove(categoria);

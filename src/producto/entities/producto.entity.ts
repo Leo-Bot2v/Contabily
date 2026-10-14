@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   ManyToOne,
   OneToMany,
   JoinColumn,
@@ -232,6 +233,18 @@ export class Producto {
   @ApiProperty({ description: 'Fecha de última actualización' })
   @UpdateDateColumn({ type: 'timestamptz', name: 'actualizado_en' })
   actualizadoEn: Date;
+
+  /**
+   * Fecha de borrado lógico. NULL = activo.
+   *
+   * Sin esta columna `softRemove` no tenía dónde escribir y la eliminación de
+   * productos fallaba siempre. Ahora un producto que ya aparece en facturas o
+   * en movimientos de stock puede dejar de verse en el catálogo sin borrar la
+   * fila: la factura y el histórico de inventario siguen apuntando a ella.
+   */
+  @ApiPropertyOptional({ description: 'Fecha de borrado lógico (NULL = activo)' })
+  @DeleteDateColumn({ type: 'timestamptz', name: 'eliminado_en' })
+  eliminadoEn: Date | null;
 
   // Métodos de conveniencia
   get precioEfectivo(): number {

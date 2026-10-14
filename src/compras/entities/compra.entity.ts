@@ -144,6 +144,12 @@ export class Compra {
   @Column({ type: 'text', nullable: true })
   notas: string | null;
 
+  @ApiPropertyOptional({
+    description: 'Foto del comprobante en base64 (data URL); se comprime en el navegador antes de enviarse',
+  })
+  @Column({ type: 'text', nullable: true })
+  imagen: string | null;
+
   @OneToMany(() => CompraDetalleClass, (detalle) => detalle.compra, { cascade: true })
   detalles: CompraDetalle[];
 

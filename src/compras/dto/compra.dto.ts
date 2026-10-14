@@ -110,6 +110,16 @@ export class CrearCompraDto {
   @IsString({ message: 'Las notas deben ser una cadena de texto' })
   notas?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Foto de la factura en base64 (data URL). El navegador la comprime antes de enviarla; máx. ~2 MB.',
+    example: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQ...',
+  })
+  @IsOptional()
+  @IsString({ message: 'La imagen debe ser una cadena de texto en base64' })
+  @MaxLength(3_000_000, { message: 'La imagen es demasiado grande (máx. ~2 MB comprimida)' })
+  imagen?: string;
+
   @ApiProperty({ description: 'Líneas de la factura', type: [LineaCompraDto] })
   @ArrayMinSize(1, { message: 'La compra debe tener al menos una línea' })
   @ValidateNested({ each: true, message: 'Cada línea debe ser válida' })

@@ -3,10 +3,15 @@ import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { apiReference } from '@scalar/nestjs-api-reference';
+import { json } from 'express';
 import { AppModule } from './app.module.js';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // bodyParser desactivado aquí para configurarlo abajo con un límite mayor:
+  // el JSON por defecto admite solo 100 KB y la imagen adjunta de gastos y
+  // compras viaja en base64 dentro del propio cuerpo de la petición.
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  app.use(json({ limit: '10mb' }));
 
   const configService = app.get(ConfigService);
 

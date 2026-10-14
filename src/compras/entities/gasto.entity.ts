@@ -67,6 +67,12 @@ export class Gasto {
   @Column({ type: 'varchar', length: 100, nullable: true, name: 'numero_comprobante' })
   numeroComprobante: string | null;
 
+  @ApiPropertyOptional({
+    description: 'Foto del comprobante en base64 (data URL); se comprime en el navegador antes de enviarse',
+  })
+  @Column({ type: 'text', nullable: true })
+  imagen: string | null;
+
   @ApiProperty({ description: 'Moneda del gasto (BOB o USD)', example: 'BOB', default: 'BOB' })
   @Column({ type: 'varchar', length: 3, default: 'BOB' })
   moneda: string;

@@ -49,6 +49,16 @@ export class CrearGastoDto {
   @IsOptional()
   @IsString({ message: 'La fecha debe ser una cadena de texto ISO 8601' })
   fecha?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Foto del comprobante en base64 (data URL). El navegador la comprime antes de enviarla; máx. ~2 MB.',
+    example: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQ...',
+  })
+  @IsOptional()
+  @IsString({ message: 'La imagen debe ser una cadena de texto en base64' })
+  @MaxLength(3_000_000, { message: 'La imagen es demasiado grande (máx. ~2 MB comprimida)' })
+  imagen?: string;
 }
 
 export class CrearCategoriaGastoDto {

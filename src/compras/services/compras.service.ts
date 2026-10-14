@@ -150,6 +150,7 @@ export class ComprasService {
             cuentaFinancieraId: cuenta?.id ?? null,
             asientoId: null,
             notas: dto.notas ?? null,
+            imagen: dto.imagen ?? null,
           }),
         );
 

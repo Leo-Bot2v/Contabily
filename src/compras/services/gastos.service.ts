@@ -115,6 +115,7 @@ export class GastosService {
           fecha,
           descripcion: dto.descripcion,
           numeroComprobante: dto.numeroComprobante ?? null,
+          imagen: dto.imagen ?? null,
           moneda,
           monto: monto.toFixed(2),
           iva: iva.toFixed(2),

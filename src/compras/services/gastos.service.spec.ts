@@ -134,6 +134,17 @@ describe('GastosService', () => {
       expect(gasto.usuarioId).toBe('usuario-1');
     });
 
+    it('guarda la imagen adjunta y la deja en null si no se envía', async () => {
+      const conImagen = await service.crear(EMPRESA, 'usuario-1', {
+        ...dtoGasto,
+        imagen: 'data:image/jpeg;base64,AAAA',
+      });
+      expect(conImagen.imagen).toBe('data:image/jpeg;base64,AAAA');
+
+      const sinImagen = await service.crear(EMPRESA, 'usuario-1', dtoGasto);
+      expect(sinImagen.imagen).toBeNull();
+    });
+
     it('con IVA desglosa la cuenta de IVA por pagar en el asiento', async () => {
       await service.crear(EMPRESA, 'usuario-1', { ...dtoGasto, iva: 104 });
 

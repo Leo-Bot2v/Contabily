@@ -268,6 +268,17 @@ describe('ComprasService', () => {
       expect(secuenciaCompras).toBe(0);
     });
 
+    it('guarda la imagen adjunta y la deja en null si no se envía', async () => {
+      const conImagen = await service.crear(EMPRESA, {
+        ...dtoContado,
+        imagen: 'data:image/jpeg;base64,AAAA',
+      });
+      expect(conImagen.imagen).toBe('data:image/jpeg;base64,AAAA');
+
+      const sinImagen = await service.crear(EMPRESA, dtoContado);
+      expect(sinImagen.imagen).toBeNull();
+    });
+
     it('rechaza una compra de contado sin cuenta financiera', async () => {
       await expect(
         service.crear(EMPRESA, { ...dtoContado, cuentaFinancieraId: undefined }),

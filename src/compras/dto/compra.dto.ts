@@ -52,10 +52,15 @@ export class CrearCompraDto {
   @IsUUID(4, { message: 'proveedorId debe ser un UUID válido' })
   proveedorId: string;
 
-  @ApiProperty({ description: 'Número de factura del proveedor', example: 'FA-001234' })
+  @ApiPropertyOptional({
+    description:
+      'Correlativo interno de la compra (ej. FC-000007). Si no se envía, el backend asigna el siguiente de la serie del negocio.',
+    example: 'FC-000007',
+  })
+  @IsOptional()
   @IsString({ message: 'El número de factura debe ser una cadena de texto' })
   @MaxLength(50, { message: 'El número de factura no puede exceder 50 caracteres' })
-  numeroFactura: string;
+  numeroFactura?: string;
 
   @ApiPropertyOptional({ description: 'Fecha de la factura (YYYY-MM-DD); por defecto hoy', example: '2026-10-11' })
   @IsOptional()

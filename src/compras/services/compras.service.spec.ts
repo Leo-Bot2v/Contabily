@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 
 import { ComprasService } from './compras.service.js';
 import { Compra, EstadoCompra, TipoPagoCompra } from '../entities/compra.entity.js';
+import { Empresa } from '../../empresa/entities/empresa.entity.js';
 import { MovimientosFinancierosService } from '../../cajas/services/movimientos-financieros.service.js';
 import { Proveedor } from '../entities/proveedor.entity.js';
 import { CuentaFinanciera } from '../../cajas/entities/cuenta-financiera.entity.js';
@@ -27,8 +28,14 @@ describe('ComprasService', () => {
     reversarEntradaCompra: ReturnType<typeof vi.fn>;
   };
   let comprasRepo: { find: ReturnType<typeof vi.fn>; findOne: ReturnType<typeof vi.fn> };
-  let asientosCreados: Array<{ detalles: Array<{ cuentaId: string; debe: number; haber: number }> }>;
+  let asientosCreados: Array<{
+    glosa?: string;
+    referencia?: string;
+    detalles: Array<{ cuentaId: string; debe: number; haber: number }>;
+  }>;
   let compraGuardada: Record<string, any> | null;
+  /** Contador de `empresas.secuencia_compras` (correlativo de compras). */
+  let secuenciaCompras: number;
   /**
    * Verdadero mientras corre el callback de `dataSource.transaction`. Una
    * conexión distinta a la del `manager` NO ve las filas sin commitear: es
@@ -54,6 +61,7 @@ describe('ComprasService', () => {
 
   beforeEach(() => {
     enTransaccion = false;
+    secuenciaCompras = 0;
     asientosCreados = [];
     compraGuardada = null;
     caja = {
@@ -72,6 +80,24 @@ describe('ComprasService', () => {
       ),
     });
     reposPorClase.set(Proveedor, { findOne: vi.fn(async () => ({ ...proveedor })) });
+    // UPDATE ... RETURNING sobre `empresas` que reserva el correlativo de
+    // compras: cada ejecución devuelve el siguiente número del negocio.
+    reposPorClase.set(Empresa, {
+      createQueryBuilder: vi.fn(() => ({
+        update: vi.fn(() => ({
+          set: vi.fn(() => ({
+            where: vi.fn(() => ({
+              returning: vi.fn(() => ({
+                execute: vi.fn(async () => {
+                  secuenciaCompras += 1;
+                  return { raw: [{ secuencia_compras: secuenciaCompras }] };
+                }),
+              })),
+            })),
+          })),
+        })),
+      })),
+    });
 
     manager = {
       findOne: vi.fn(async (clase: unknown, opciones?: { where?: { id?: string } }) => {
@@ -214,6 +240,32 @@ describe('ComprasService', () => {
       expect(compra.montoEnMonedaBase).toBe('2370.00'); // 200 × 11.85
       expect(asientosCreados[0].detalles[1]).toEqual({ cuentaId: 'cc-caja', debe: 0, haber: 2370 });
       expect(caja.saldo).toBe('97630.00'); // 100000 − 2370
+    });
+
+    it('sin número de factura asigna el correlativo automático FC-000001', async () => {
+      const compra = await service.crear(EMPRESA, { ...dtoContado, numeroFactura: undefined });
+
+      expect(compra.numeroFactura).toBe('FC-000001');
+      expect(secuenciaCompras).toBe(1);
+      // El correlativo se usa como glosa y referencia del asiento generado
+      expect(asientosCreados[0].glosa).toContain('FC-000001');
+      expect(asientosCreados[0].referencia).toBe('FC-000001');
+    });
+
+    it('dos compras seguidas reciben correlativos consecutivos', async () => {
+      const primera = await service.crear(EMPRESA, { ...dtoContado, numeroFactura: undefined });
+      const segunda = await service.crear(EMPRESA, { ...dtoContado, numeroFactura: undefined });
+
+      expect(primera.numeroFactura).toBe('FC-000001');
+      expect(segunda.numeroFactura).toBe('FC-000002');
+      expect(secuenciaCompras).toBe(2);
+    });
+
+    it('respeta el número escrito a mano y no toca el contador', async () => {
+      const compra = await service.crear(EMPRESA, dtoContado);
+
+      expect(compra.numeroFactura).toBe('FA-001');
+      expect(secuenciaCompras).toBe(0);
     });
 
     it('rechaza una compra de contado sin cuenta financiera', async () => {

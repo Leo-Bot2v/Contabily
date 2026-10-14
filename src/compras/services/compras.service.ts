@@ -20,6 +20,7 @@ import { CompraDetalle } from '../entities/compra-detalle.entity.js';
 import { CompraPago } from '../entities/compra-pago.entity.js';
 import { Proveedor } from '../entities/proveedor.entity.js';
 import { CuentaFinanciera } from '../../cajas/entities/cuenta-financiera.entity.js';
+import { Empresa } from '../../empresa/entities/empresa.entity.js';
 import { PlanDeCuenta } from '../../contabilidad/entities/plan-de-cuenta.entity.js';
 import { AsientosService } from '../../contabilidad/services/asientos.service.js';
 import { MovimientosFinancierosService } from '../../cajas/services/movimientos-financieros.service.js';
@@ -89,6 +90,10 @@ export class ComprasService {
     const moneda = dto.moneda ?? 'BOB';
     const fecha = dto.fecha ?? this.hoy();
 
+    // Correlativo interno: si el usuario no escribe un N°, se asigna el
+    // siguiente de la serie del negocio (FC-000001) dentro de la transacción.
+    let numeroFactura: string | undefined = dto.numeroFactura?.trim() || undefined;
+
     if (tipoPago === TipoPagoCompra.CONTADO && !dto.cuentaFinancieraId) {
       throw new BadRequestException(
         'Las compras de contado requieren cuentaFinancieraId (la caja o banco con la que se paga)',
@@ -118,11 +123,17 @@ export class ComprasService {
           this.movimientosFinancieros.validarSaldoSuficiente(cuenta, debitoCaja);
         }
 
+        if (!numeroFactura) {
+          numeroFactura = this.formatearNumeroFactura(
+            await this.reservarSecuenciaCompras(manager, empresaId),
+          );
+        }
+
         const compra = await manager.save(
           manager.create(Compra, {
             empresaId,
             proveedorId: proveedor.id,
-            numeroFactura: dto.numeroFactura,
+            numeroFactura,
             fecha,
             fechaVencimiento: dto.fechaVencimiento ?? null,
             tipoPago,
@@ -175,8 +186,8 @@ export class ComprasService {
 
         const asiento = await this.asientosService.crearAsiento(manager, {
           empresaId,
-          glosa: `Compra ${dto.numeroFactura} a ${proveedor.nombre}`,
-          referencia: dto.numeroFactura,
+          glosa: `Compra ${numeroFactura} a ${proveedor.nombre}`,
+          referencia: numeroFactura,
           fecha: new Date(fecha),
           detalles: detallesAsiento,
         });
@@ -210,7 +221,7 @@ export class ComprasService {
       // La restricción UNIQUE (empresa, proveedor, factura) se traduce a un 409 claro.
       if (this.esFacturaDuplicada(error)) {
         throw new ConflictException(
-          `Ya existe la factura "${dto.numeroFactura}" registrada al proveedor ${proveedor.nombre}`,
+          `Ya existe la factura "${numeroFactura ?? dto.numeroFactura}" registrada al proveedor ${proveedor.nombre}`,
         );
       }
       throw error;
@@ -452,6 +463,38 @@ export class ComprasService {
       );
     }
     return cuenta;
+  }
+
+  /**
+   * Reserva el siguiente correlativo de compras del negocio. El UPDATE bloquea
+   * la fila de la empresa dentro de la transacción abierta, así que dos compras
+   * creándose a la vez no pueden leer el mismo número.
+   */
+  private async reservarSecuenciaCompras(
+    manager: EntityManager,
+    empresaId: string,
+  ): Promise<number> {
+    const resultado = await manager
+      .getRepository(Empresa)
+      .createQueryBuilder()
+      .update(Empresa)
+      .set({ secuenciaCompras: () => 'secuencia_compras + 1' })
+      .where('id = :empresaId', { empresaId })
+      .returning('secuencia_compras')
+      .execute();
+
+    const numero = resultado.raw?.[0]?.secuencia_compras;
+    if (numero === undefined || numero === null) {
+      throw new ConflictException(
+        'No se pudo asignar el número de factura: el negocio no existe',
+      );
+    }
+    return Number(numero);
+  }
+
+  /** Correlativo interno con el que se muestra la compra: FC-000001. */
+  private formatearNumeroFactura(secuencia: number): string {
+    return `FC-${String(secuencia).padStart(6, '0')}`;
   }
 
   private validarLineas(detalles: LineaCompraDto[]): LineaValidada[] {

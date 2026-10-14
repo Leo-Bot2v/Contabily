@@ -120,6 +120,20 @@ export class Empresa {
   @Column({ type: 'integer', name: 'secuencia_asientos', default: 0 })
   secuenciaAsientos: number;
 
+  /**
+   * Contador del correlativo interno de compras (N° de factura `FC-000001`).
+   *
+   * Mismo mecanismo que `secuenciaAsientos`: se incrementa con UPDATE ...
+   * RETURNING dentro de la transacción de la compra, que bloquea la fila del
+   * tenant y evita números duplicados por concurrencia.
+   */
+  @ApiProperty({
+    description: 'Último correlativo de compra emitido por el negocio',
+    default: 0,
+  })
+  @Column({ type: 'integer', name: 'secuencia_compras', default: 0 })
+  secuenciaCompras: number;
+
   // Relaciones
   @ApiProperty({ description: 'ID del propietario' })
   @Column({ type: 'uuid' })

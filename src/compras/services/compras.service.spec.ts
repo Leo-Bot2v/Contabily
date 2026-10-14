@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 
 import { ComprasService } from './compras.service.js';
-import { EstadoCompra, TipoPagoCompra } from '../entities/compra.entity.js';
+import { Compra, EstadoCompra, TipoPagoCompra } from '../entities/compra.entity.js';
 import { MovimientosFinancierosService } from '../../cajas/services/movimientos-financieros.service.js';
 import { Proveedor } from '../entities/proveedor.entity.js';
 import { CuentaFinanciera } from '../../cajas/entities/cuenta-financiera.entity.js';
@@ -29,6 +29,12 @@ describe('ComprasService', () => {
   let comprasRepo: { find: ReturnType<typeof vi.fn>; findOne: ReturnType<typeof vi.fn> };
   let asientosCreados: Array<{ detalles: Array<{ cuentaId: string; debe: number; haber: number }> }>;
   let compraGuardada: Record<string, any> | null;
+  /**
+   * Verdadero mientras corre el callback de `dataSource.transaction`. Una
+   * conexión distinta a la del `manager` NO ve las filas sin commitear: es
+   * exactamente el fallo que provocó el 404 "Compra no encontrada" al crear.
+   */
+  let enTransaccion = false;
   let caja: Record<string, any>;
 
   const proveedor = { id: 'prov-1', nombre: 'Distribuidora Andina', activo: true };
@@ -47,6 +53,7 @@ describe('ComprasService', () => {
   };
 
   beforeEach(() => {
+    enTransaccion = false;
     asientosCreados = [];
     compraGuardada = null;
     caja = {
@@ -67,12 +74,22 @@ describe('ComprasService', () => {
     reposPorClase.set(Proveedor, { findOne: vi.fn(async () => ({ ...proveedor })) });
 
     manager = {
-      findOne: vi.fn(async (clase) =>
-        clase === CuentaFinanciera ? { ...caja } : null,
-      ),
+      findOne: vi.fn(async (clase: unknown, opciones?: { where?: { id?: string } }) => {
+        if (clase === CuentaFinanciera) return { ...caja };
+        // El manager comparte la conexión con la transacción: ahí sí se ve
+        // la compra recién escrita (aún sin commitear).
+        if (clase === Compra) {
+          if (!enTransaccion || !compraGuardada) return null;
+          const idBuscado = opciones?.where?.id;
+          if (idBuscado && compraGuardada.id && idBuscado !== compraGuardada.id) return null;
+          return compraGuardada;
+        }
+        return null;
+      }),
       create: vi.fn((_clase, datos) => datos),
       save: vi.fn(async (entidad) => {
         if (entidad && 'numeroFactura' in entidad) {
+          if (!entidad.id) entidad.id = 'compra-1';
           compraGuardada = { proveedor, pagos: [], ...entidad };
           return compraGuardada;
         }
@@ -87,7 +104,14 @@ describe('ComprasService', () => {
     };
 
     dataSource = {
-      transaction: vi.fn(async (callback) => callback(manager)),
+      transaction: vi.fn(async (callback: (m: typeof manager) => Promise<unknown>) => {
+        enTransaccion = true;
+        try {
+          return await callback(manager);
+        } finally {
+          enTransaccion = false;
+        }
+      }),
       getRepository: vi.fn((clase) => reposPorClase.get(clase)),
     };
 
@@ -105,7 +129,9 @@ describe('ComprasService', () => {
 
     comprasRepo = {
       find: vi.fn(async () => (compraGuardada ? [compraGuardada] : [])),
-      findOne: vi.fn(async () => compraGuardada),
+      // Este repo corre en OTRA conexión: mientras dura la transacción no ve
+      // las filas sin commitear (ese fue el bug del 404 "Compra no encontrada").
+      findOne: vi.fn(async () => (enTransaccion ? null : compraGuardada)),
     };
 
     const movimientosFinancieros = new MovimientosFinancierosService({} as never, {
@@ -128,6 +154,11 @@ describe('ComprasService', () => {
       expect(compra.estado).toBe(EstadoCompra.PAGADA);
       expect(compra.saldoPendiente).toBe('0.00');
       expect(compra.total).toBe('200.00');
+
+      // Regresión: la compra debe leerse con el manager de la transacción.
+      // Leyéndola desde otra conexión devolvía null → 404 y rollback total.
+      expect(compra.id).toBe('compra-1');
+      expect(compra.asientoId).toBe('asiento-1');
 
       // Debe mercaderías / Haber caja
       expect(asientosCreados).toHaveLength(1);

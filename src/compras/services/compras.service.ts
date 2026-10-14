@@ -31,6 +31,15 @@ const CUENTA_MERCADERIAS = '1.1.3.01';
 const CUENTA_IVA_POR_PAGAR = '2.1.2.01';
 const CUENTA_PROVEEDORES = '2.1.1.01';
 
+/** Relaciones que trae una compra al mostrarse (detalle, pagos y asiento). */
+const RELACIONES_COMPRA: FindOptionsRelations<Compra> = {
+  proveedor: true,
+  detalles: { producto: true, variante: true },
+  pagos: { cuentaFinanciera: true },
+  cuentaFinanciera: true,
+  asiento: true,
+};
+
 export interface FiltroCompras {
   proveedorId?: string;
   estado?: EstadoCompra;
@@ -192,7 +201,10 @@ export class ComprasService {
           })),
         );
 
-        return this.obtenerPorId(empresaId, compra.id);
+        // Se lee con el MISMO manager de la transacción: cualquier otra
+        // conexión del pool no vería la fila (aún no commiteada) y lanzaría
+        // "Compra no encontrada", revirtiendo todo lo recién guardado.
+        return this.buscarCompra(empresaId, compra.id, RELACIONES_COMPRA, manager);
       });
     } catch (error) {
       // La restricción UNIQUE (empresa, proveedor, factura) se traduce a un 409 claro.
@@ -387,26 +399,26 @@ export class ComprasService {
   }
 
   async obtenerPorId(empresaId: string, id: string): Promise<Compra> {
-    return this.buscarCompra(empresaId, id, {
-      proveedor: true,
-      detalles: { producto: true, variante: true },
-      pagos: { cuentaFinanciera: true },
-      cuentaFinanciera: true,
-      asiento: true,
-    });
+    return this.buscarCompra(empresaId, id, RELACIONES_COMPRA);
   }
 
   // ==================== INTERNOS ====================
 
+  /**
+   * Carga una compra del negocio activo. Si se pasa un `manager`, la lectura
+   * ocurre dentro de esa transacción (obligatorio para leer lo recién escrito
+   * antes del commit); sin él se usa el repositorio normal.
+   */
   private async buscarCompra(
     empresaId: string,
     id: string,
     relations: FindOptionsRelations<Compra> = {},
+    manager?: EntityManager,
   ): Promise<Compra> {
-    const compra = await this.comprasRepo.findOne({
-      where: { id, empresaId },
-      relations,
-    });
+    const where: FindOptionsWhere<Compra> = { id, empresaId };
+    const compra = manager
+      ? await manager.findOne(Compra, { where, relations })
+      : await this.comprasRepo.findOne({ where, relations });
     if (!compra) {
       throw new NotFoundException('Compra no encontrada');
     }
